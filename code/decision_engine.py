@@ -539,6 +539,9 @@ def _find_spending_changes_for_full_payment(
 
     safe_base = compute_amount_safe_to_pay(dataset, profile, request_date, requested)
     shortfall = requested - safe_base
+    earliest_no_changes = earliest_full_payment_date(
+        dataset, profile, request_date, requested
+    )
 
     # Try combinations of 1, 2, 3 changes
     for n in range(1, min(4, len(all_changes) + 1)):
@@ -571,7 +574,19 @@ def _find_spending_changes_for_full_payment(
                 reduced_events=reduced_map,
             )
             tot_sav = sum(s for _, _, s in combo)
-            if safe >= requested or tot_sav >= shortfall - 1e-4 or safe_base + tot_sav >= requested * 0.85:
+
+            ratio = (tot_sav / shortfall) if shortfall > 0 else 1.0
+            deadline_missed = bool(
+                earliest_no_changes
+                and req.desired_completion_date
+                and earliest_no_changes > req.desired_completion_date
+            )
+
+            if (
+                safe >= requested - 1e-4
+                or (tot_sav >= shortfall - 1e-4 and safe_base + tot_sav >= requested)
+                or (deadline_missed and ratio >= 0.15 and safe > safe_base)
+            ):
                 return (stops, reduces, max(safe, requested))
 
     return None

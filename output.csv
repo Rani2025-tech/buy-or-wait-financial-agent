@@ -50,7 +50,7 @@ request_73,71400,affordable_now,full_payment,2023-01-20:71400.0,2023-01-20,none,
 request_74,5010,affordable_now,full_payment,2025-08-04:5010.0,2025-08-04,none,"Pay ZAR 5,010 today. This leaves at least ZAR 21,900 available over the next 90 days."
 request_75,10416.4,affordable_with_plan,installments,2026-04-09:9800.27|2026-05-09:9800.27|2026-06-08:9800.27,,none,"Use 3 installments of ZAR 9,800.27, starting 9 April 2026. This leaves at least ZAR 39,000 available."
 request_76,677.36,not_affordable,not_recommended,none,,none,"Do not make this payment by 30 July 2024. None of the available options keeps the USD 1,800 minimum protected."
-request_77,52294.05,affordable_with_plan,full_payment,2025-11-05:60700.0,2025-11-15,stop:event_7143,"Stop the online backup subscription, then pay INR 60,700 today. This leaves at least INR 82,200 available."
+request_77,52294.05,affordable_later,wait,2025-11-15:60700.0,2025-11-15,none,"Pay INR 60,700 in full on 15 November 2025. Paying earlier would take the balance below the INR 82,200 minimum."
 request_78,45365.25,affordable_with_plan,full_payment,2025-10-02:50200.0,2025-10-15,reduce_to:event_7225:1480.0,"Reduce the monthly shopping spend to inr 1,480, then pay INR 50,200 today. This leaves at least INR 55,200 available."
 request_79,194.96,not_affordable,not_recommended,none,,none,"Do not make this payment by 1 November 2024. None of the available options keeps the EUR 1,000 minimum protected."
 request_80,93273.76,not_affordable,not_recommended,none,,none,"Do not make this payment by 21 February 2025. None of the available options keeps the INR 121,300 minimum protected."
