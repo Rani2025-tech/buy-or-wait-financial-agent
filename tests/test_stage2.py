@@ -31,6 +31,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "code"))
 from data_loader import Dataset
 from financial_engine import (
     _EXCLUDED_STATUSES,
+    _IMAGE_AMOUNTS,
     affects_settled_balance,
     build_projection,
     compute_amount_safe_to_pay,
@@ -377,9 +378,25 @@ class TestBlankAmountResolution:
         assert ds.get_event("event_253").amount is None
 
     def test_blank_raises_before_extraction(self, ds):
-        e = ds.get_event("event_253")
+        from data_loader import FinancialEvent
+        synthetic = FinancialEvent(
+            event_id="event_unextracted_test",
+            user_id="user_test",
+            event_type="expense",
+            description="Unextracted test",
+            category="dining",
+            direction="debit",
+            amount=None,
+            currency="INR",
+            event_date=date(2026, 1, 1),
+            settlement_date=date(2026, 1, 1),
+            status="settled",
+            linked_event_id="",
+            flexibility="flexible",
+            minimum_allowed_amount=None,
+        )
         with pytest.raises(ValueError, match="not been extracted"):
-            resolve_event_amount(e)
+            resolve_event_amount(synthetic)
 
     def test_non_blank_resolves_directly(self, ds):
         for e in ds.get_events_for_user("user_01"):
@@ -389,9 +406,10 @@ class TestBlankAmountResolution:
 
     def test_set_and_resolve_image_amount(self, ds):
         e = ds.get_event("event_253")
+        orig = _IMAGE_AMOUNTS.get("event_253")
         set_image_amount("event_253", 99999.0)
         assert resolve_event_amount(e) == 99999.0
-        set_image_amount("event_253", None)  # reset
+        set_image_amount("event_253", orig)  # reset
 
     def test_all_16_blank_events_exist(self, ds):
         for eid in self.BLANK_EVENT_IDS:

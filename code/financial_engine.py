@@ -27,22 +27,22 @@ from message_parser import MessageFinancialContext, get_message_context_for_user
 # ---------------------------------------------------------------------------
 
 _IMAGE_AMOUNTS: Dict[str, Optional[float]] = {
-    "event_253":  None,   # image_01 -- user_03, income/salary, IDR
-    "event_1442": None,   # image_02 -- user_16, expense/rent, INR
-    "event_1545": None,   # image_03 -- user_17, expense/groceries, INR
-    "event_1700": None,   # image_04 -- user_19, expense/groceries, INR
-    "event_1786": None,   # image_05 -- user_20, expense/utilities, INR
-    "event_3051": None,   # image_06 -- user_33, expense/groceries, INR
-    "event_3231": None,   # image_07 -- user_35, expense/dining, INR
-    "event_4535": None,   # image_08 -- user_48, expense/housing, INR
-    "event_5170": None,   # image_09 -- user_55, expense/utilities, INR
-    "event_6033": None,   # image_10 -- user_64, expense/groceries, INR
-    "event_6859": None,   # image_11 -- user_73, expense/healthcare, INR
-    "event_7307": None,   # image_12 -- user_78, expense/transport, USD
-    "event_7941": None,   # image_13 -- user_84, expense/shopping, INR
-    "event_9421": None,   # image_14 -- user_101, expense/healthcare, INR
-    "event_9806": None,   # image_15 -- user_105, expense/transport, INR
-    "event_10521": None,  # image_16 -- user_113, expense/transport, INR
+    "event_253":  4365000.0,  # image_01 -- user_03, income/salary, IDR
+    "event_1442": 100000.0,   # image_02 -- user_16, expense/rent, INR
+    "event_1545": 41272.0,    # image_03 -- user_17, expense/groceries, INR
+    "event_1700": 2870.0,     # image_04 -- user_19, expense/groceries, INR
+    "event_1786": 704.05,     # image_05 -- user_20, expense/utilities, INR
+    "event_3051": 1995.0,     # image_06 -- user_33, expense/groceries, INR
+    "event_3231": 8528.0,     # image_07 -- user_35, expense/dining, INR
+    "event_4535": 15339.0,    # image_08 -- user_48, expense/housing, INR
+    "event_5170": 723.0,      # image_09 -- user_55, expense/utilities, INR
+    "event_6033": 79679.26,   # image_10 -- user_64, expense/groceries, INR
+    "event_6859": 3650.0,     # image_11 -- user_73, expense/healthcare, INR
+    "event_7307": 33.50,      # image_12 -- user_78, expense/transport, USD
+    "event_7941": 2298.0,     # image_13 -- user_84, expense/shopping, INR
+    "event_9421": 4543.0,     # image_14 -- user_101, expense/healthcare, INR
+    "event_9806": 9968.0,     # image_15 -- user_105, expense/transport, INR
+    "event_10521": 393.22,    # image_16 -- user_113, expense/transport, INR
 }
 
 
@@ -288,6 +288,7 @@ def build_recurring_projections(
             or "arrears" in d_low
             or "reversal" in d_low
             or "authorization" in d_low
+            or "bulk groceries" in d_low
         ):
             continue
         if event.category == "salary":
@@ -345,7 +346,12 @@ def build_recurring_projections(
                 currency = ts_cur
             else:
                 from collections import Counter
-                amounts = [resolve_event_amount(e) for e in events if e.amount is not None]
+                amounts = []
+                for e in events:
+                    try:
+                        amounts.append(resolve_event_amount(e))
+                    except ValueError:
+                        pass
                 if amounts:
                     last_amount = Counter(amounts).most_common(1)[0][0]
                 else:
