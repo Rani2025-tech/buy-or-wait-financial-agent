@@ -20,6 +20,7 @@ from decimal import Decimal, ROUND_HALF_UP
 from typing import Dict, List, Optional, Tuple
 
 from data_loader import Dataset, FinancialEvent, FinancialProfile
+from message_parser import MessageFinancialContext, get_message_context_for_user
 
 # ---------------------------------------------------------------------------
 # Image amount extraction
@@ -230,6 +231,7 @@ def build_recurring_projections(
     horizon_days: int = 90,
     stopped_event_ids: Optional[List[str]] = None,
     reduced_events: Optional[Dict[str, float]] = None,
+    msg_ctx: Optional[MessageFinancialContext] = None,
 ) -> List[ProjectedCashFlow]:
     """
     Detect recurring patterns from settled history and project them forward
@@ -237,22 +239,25 @@ def build_recurring_projections(
 
     For each recurring stream:
       1. Uses calendar months for monthly streams to preserve day-of-month.
-      2. Respects final employer payroll (no salary projection after final payroll).
+      2. Respects final employer payroll and message contract terminations.
       3. Excludes one-off income/expenses (bonus, arrears, windfalls, refunds).
-      4. Extrapolates recurring streams accurately across the 90-day horizon.
+      4. Incorporates validated message adjustments (salary increases, rent +12%, household reductions).
+      5. Extrapolates recurring streams accurately across the 90-day horizon.
     """
     if stopped_event_ids is None:
         stopped_event_ids = []
     if reduced_events is None:
         reduced_events = {}
+    if msg_ctx is None:
+        msg_ctx = get_message_context_for_user(dataset, profile.user_id)
 
     stopped_set = set(stopped_event_ids)
     end_date = request_date + timedelta(days=horizon_days)
     home_cur = profile.home_currency
     user_events = dataset.get_events_for_user(profile.user_id)
 
-    # Check if salary has ended
-    salary_ended = any(
+    # Check if salary has ended (via settled "final" payroll or message contract termination)
+    salary_ended = msg_ctx.salary_ended or any(
         "final" in e.description.lower()
         for e in user_events
         if e.category == "salary" and e.status == "settled" and e.event_date <= request_date
@@ -328,15 +333,26 @@ def build_recurring_projections(
             continue
 
         if cat == "salary":
-            from collections import Counter
-            amounts = [resolve_event_amount(e) for e in events if e.amount is not None]
-            if amounts:
-                last_amount = Counter(amounts).most_common(1)[0][0]
-            else:
-                try:
-                    last_amount = resolve_event_amount(last_event)
-                except ValueError:
+            if msg_ctx.household_salary:
+                hh_amt, hh_cur = msg_ctx.household_salary
+                if any("second" in e.description.lower() or "secondary" in e.description.lower() for e in events):
                     continue
+                last_amount = hh_amt
+                currency = hh_cur
+            elif msg_ctx.temporary_salary:
+                ts_amt, ts_cur = msg_ctx.temporary_salary
+                last_amount = ts_amt
+                currency = ts_cur
+            else:
+                from collections import Counter
+                amounts = [resolve_event_amount(e) for e in events if e.amount is not None]
+                if amounts:
+                    last_amount = Counter(amounts).most_common(1)[0][0]
+                else:
+                    try:
+                        last_amount = resolve_event_amount(last_event)
+                    except ValueError:
+                        continue
         else:
             try:
                 last_amount = resolve_event_amount(last_event)
@@ -352,8 +368,6 @@ def build_recurring_projections(
         if last_event.event_id in reduced_events:
             amount_home = reduced_events[last_event.event_id]
 
-        signed = amount_home if direction == "credit" else -amount_home
-
         dates = [e.event_date for e in events]
         freq_type, freq_val = _detect_frequency(dates)
 
@@ -364,9 +378,29 @@ def build_recurring_projections(
                 if proj_date > end_date:
                     break
                 if proj_date >= request_date:
+                    curr_amt_home = amount_home
+                    curr_proj_date = proj_date
+
+                    # Salary Increase: replace forward salary from effective date
+                    if cat == "salary" and msg_ctx.salary_increase:
+                        si_amt, si_cur, si_eff_date = msg_ctx.salary_increase
+                        if curr_proj_date >= si_eff_date:
+                            curr_amt_home = convert_amount(dataset, si_amt, si_cur, home_cur, fx_ref_date(si_eff_date))
+
+                    # Salary Date Shift: replace specific salary settlement date
+                    if cat == "salary" and msg_ctx.salary_date_shift:
+                        shift_d = msg_ctx.salary_date_shift
+                        if curr_proj_date.year == shift_d.year and curr_proj_date.month == shift_d.month:
+                            curr_proj_date = shift_d
+
+                    # Rent Increase: apply 12% multiplier to future rent debits
+                    if cat in ("rent", "housing") and msg_ctx.rent_multiplier != 1.0:
+                        curr_amt_home = _round2(curr_amt_home * msg_ctx.rent_multiplier)
+
+                    signed_curr = curr_amt_home if direction == "credit" else -curr_amt_home
                     projections.append(ProjectedCashFlow(
-                        proj_date=proj_date,
-                        amount_home=signed,
+                        proj_date=curr_proj_date,
+                        amount_home=signed_curr,
                         source_event_id=last_event.event_id,
                         category=cat,
                         flexibility=flexibility,
@@ -382,9 +416,13 @@ def build_recurring_projections(
                 if proj_date > end_date:
                     break
                 if proj_date >= request_date:
+                    curr_amt_home = amount_home
+                    if cat in ("rent", "housing") and msg_ctx.rent_multiplier != 1.0:
+                        curr_amt_home = _round2(curr_amt_home * msg_ctx.rent_multiplier)
+                    signed_curr = curr_amt_home if direction == "credit" else -curr_amt_home
                     projections.append(ProjectedCashFlow(
                         proj_date=proj_date,
-                        amount_home=signed,
+                        amount_home=signed_curr,
                         source_event_id=last_event.event_id,
                         category=cat,
                         flexibility=flexibility,
@@ -398,9 +436,13 @@ def build_recurring_projections(
             proj_date = last_event.event_date + timedelta(days=days_step)
             while proj_date <= end_date:
                 if proj_date >= request_date:
+                    curr_amt_home = amount_home
+                    if cat in ("rent", "housing") and msg_ctx.rent_multiplier != 1.0:
+                        curr_amt_home = _round2(curr_amt_home * msg_ctx.rent_multiplier)
+                    signed_curr = curr_amt_home if direction == "credit" else -curr_amt_home
                     projections.append(ProjectedCashFlow(
                         proj_date=proj_date,
-                        amount_home=signed,
+                        amount_home=signed_curr,
                         source_event_id=last_event.event_id,
                         category=cat,
                         flexibility=flexibility,
@@ -473,6 +515,7 @@ def build_projection(
     extra_debits: Optional[List[Tuple[date, float]]] = None,
     stopped_event_ids: Optional[List[str]] = None,
     reduced_events: Optional[Dict[str, float]] = None,
+    msg_ctx: Optional[MessageFinancialContext] = None,
 ) -> CashFlowProjection:
     """
     Build a day-by-day cash-flow projection over horizon_days.
@@ -481,14 +524,18 @@ def build_projection(
       - Scheduled/pending events from the dataset
       - Recurring projections extrapolated from settled history
       - Forward continuation of scheduled salary across horizon
+      - Confirmed client invoices from messages (non-duplicated)
       - Optional hypothetical extra_debits (for testing payment scenarios)
       - Optional spending changes (stopped/reduced recurring streams)
     """
+    if msg_ctx is None:
+        msg_ctx = get_message_context_for_user(dataset, profile.user_id)
+
     end_date = request_date + timedelta(days=horizon_days)
     home_cur = profile.home_currency
     user_events = dataset.get_events_for_user(profile.user_id)
 
-    salary_ended = any(
+    salary_ended = msg_ctx.salary_ended or any(
         "final" in e.description.lower()
         for e in user_events
         if e.category == "salary" and e.status == "settled" and e.event_date <= request_date
@@ -528,14 +575,35 @@ def build_projection(
                     next_salary_date = _add_months(relevant_date, m)
                     if next_salary_date > end_date:
                         break
-                    scheduled_by_date[next_salary_date].append(impact)
+                    eff_impact = impact
+                    if msg_ctx.salary_increase:
+                        si_amt, si_cur, si_eff_date = msg_ctx.salary_increase
+                        if next_salary_date >= si_eff_date:
+                            eff_impact = convert_amount(dataset, si_amt, si_cur, home_cur, fx_ref_date(si_eff_date))
+                    scheduled_by_date[next_salary_date].append(eff_impact)
                     m += 1
+
+    # --- Confirmed client invoices from messages (one-off, non-duplicated) ---
+    for inv_amt, inv_cur, inv_date in msg_ctx.confirmed_invoices:
+        if request_date <= inv_date <= end_date:
+            try:
+                inv_home = convert_amount(dataset, inv_amt, inv_cur, home_cur, fx_ref_date(inv_date))
+            except ValueError:
+                continue
+            already_exists = any(
+                abs(event_cash_impact(e, dataset, home_cur, inv_date) - inv_home) < 1e-2
+                for e in user_events
+                if (e.settlement_date or e.event_date) == inv_date and not is_excluded(e)
+            )
+            if not already_exists:
+                scheduled_by_date[inv_date].append(inv_home)
 
     # --- Recurring projections from settled history ---
     recurring = build_recurring_projections(
         dataset, profile, request_date, horizon_days,
         stopped_event_ids=stopped_event_ids,
         reduced_events=reduced_events,
+        msg_ctx=msg_ctx,
     )
     for proj in recurring:
         scheduled_by_date[proj.proj_date].append(proj.amount_home)
