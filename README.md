@@ -1,193 +1,328 @@
-# HackerRank Orchestrate
+# Buy or Wait? — AI-Powered Financial Decision Agent
 
-Starter repository for the **HackerRank Orchestrate** 24-hour hackathon (September 2026).
+[![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
+[![Tests](https://img.shields.io/badge/Tests-184%20Passed-brightgreen.svg)](https://docs.pytest.org/)
+[![Status](https://img.shields.io/badge/Status-Complete-success.svg)](#)
+[![Deterministic](https://img.shields.io/badge/Engine-Deterministic%20%26%20Offline-orange.svg)](#)
 
-## Buy or Wait?
-
-Build an AI-powered financial agent that decides whether a user can safely afford a requested expense.
-
-A user may ask: **"Can I afford this laptop?"**
-
-Answering well takes more than the current balance. The agent must account for recurring expenses, pending payments, essential spending, confirmed income, available payment options, and relevant details buried in messages and images.
-
-For every request, the agent decides whether the user should pay in full, pay partially, use installments, wait, or not proceed. The recommendation must be personalized: two users with the same balance can deserve different answers based on their commitments, priorities, payment preferences, and willingness to adjust flexible expenses.
-
-A recommendation is safe only if the user can complete the full payment plan, cover essential expenses, and stay above their preferred minimum balance throughout the forecast period.
-
-Read [`problem_statement.md`](./problem_statement.md) for the full task spec, input/output schema, allowed values, conflict-resolution rules, and submission format.
+A deterministic financial affordability decision agent built for **HackerRank Orchestrate (September 2026)**. The system determines whether a user can safely afford a requested purchase or payment, recommending personalized payment plans, safe dates, or flexible spending adjustments while strictly safeguarding essential commitments and a minimum buffer balance.
 
 ---
 
-## Quick Start
+## 1. Overview
 
-Clone the repository and move into the project directory:
+**Buy or Wait?** evaluates whether a user can safely proceed with a requested expense based on their current balance, 90-day cash-flow forecast, recurring commitments, pending obligations, seller payment options, and unstructured supporting evidence (messages and images).
+
+For every purchase or payment request, the agent produces a structured, actionable decision: whether to pay in full immediately, split into partial payments, use a provider installment plan, wait for future income, or decline the expense.
+
+---
+
+## 2. Problem
+
+When evaluating a major purchase, checking the current available bank balance alone is insufficient:
+
+* A user with a high current balance may have large scheduled rent payments, debt obligations, or pending debits due within days.
+* A user with a low balance today may have confirmed incoming salary settling within the week.
+* Recurring essential spending (groceries, utilities, healthcare) continuously drains available liquidity.
+* Overlooking payment options (such as 0% interest provider installment schedules) may cause a user to postpone an affordable purchase unnecessarily.
+* Violating the user's defined `minimum_balance_to_keep` leaves them vulnerable to financial emergencies.
+
+---
+
+## 3. Solution
+
+The system implements a deterministic, multi-stage financial analysis pipeline:
+
+1. **Data Ingestion**: Loads user profiles, historical/pending/scheduled financial events, seller payment options, fixed exchange rates, messages, and image references from structured CSV files.
+
+2. **Financial State Reconstruction**: Reconstructs current liquid balances, segregates settled funds from pending debits, ignores non-cash/unrealized events, and enforces user priorities and protected spending categories.
+
+3. **Evidence Integration**:
+
+   * **Messages**: Parses structured financial updates (salary increases, temporary pay cuts, employment terminations, rent increases, confirmed client invoices) in both English and Indonesian.
+   * **Images**: Resolves verified image-linked transaction amounts from receipts, invoices, bills, and payslips without requiring live OCR runtime dependencies.
+
+4. **Foreign Exchange Engine**: Converts foreign-currency cash events and requests to the user's home currency using dated fixed exchange rates via direct, inverse, or multi-hop paths.
+
+5. **90-Day Cash-Flow Forecasting**: Simulates daily opening, closing, and spendable balances over a 90-day forward horizon, modeling recurring salary cycles and essential spending.
+
+6. **Plan Generation & Ranking**: Evaluates candidate plans (immediate payment, partial payments, installments, delayed payment, and flexible spending reductions/cancellations) and ranks them using conservative safety rules.
+
+7. **Validation**: Enforces strict mathematical invariants, ensuring the projected balance never dips below the user's minimum buffer balance.
+
+---
+
+## 4. Key Features
+
+* **90-Day Daily Cash-Flow Forecasting**: Day-by-day cash balance projection accounting for recurring salary, rent, utilities, and debt obligations.
+
+* **Minimum-Balance Protection**: Enforces that projected spendable balance never falls below `minimum_balance_to_keep`.
+
+* **Comprehensive Payment Modalities**:
+
+  * `full_payment`: Safe one-time payment on request date or future safe date.
+  * `partial_payment`: Exactly two payments (safe amount today + remainder on earliest full payment date) when permitted.
+  * `installments`: Evaluates supplier options from `request_payment_options.csv` respecting `max_installment_months`.
+  * `wait`: Identifies the exact earliest safe date for full payment after scheduled inflows.
+  * `not_recommended`: Safely rejects requests that cannot be completed within deadlines or budget limits.
+
+* **Flexible-Expense Adjustments**: Explores up to 3 targeted `stop:<event_id>` or `reduce_to:<event_id>:<amount>` actions on non-protected, flexible expenses to unlock affordability.
+
+* **Bilingual Message Interpretation**: Detects and integrates salary revisions, contract terminations, rent adjustments, and confirmed client invoices from English and Indonesian messages.
+
+* **Image Transaction Amount Resolution**: Resolves verified image-linked transaction figures from receipts, invoices, bills, and payslips.
+
+* **Fixed FX Conversion**: Deterministic currency conversion utilizing dataset exchange rates with forward reference dates.
+
+* **Zero Double-Counting**: Strict guards prevent duplicate projections between settled history, scheduled future events, and external message/image evidence.
+
+---
+
+## 5. How It Works
+
+```text
+               ┌────────────────────────────────────────────────────────┐
+               │                     Dataset Input                      │
+               │ (profiles, events, options, fx rates, messages, images)│
+               └───────────────────────────┬────────────────────────────┘
+                                           │
+                                           ▼
+               ┌────────────────────────────────────────────────────────┐
+               │                      Data Loader                       │
+               │   (Parses CSVs, types dataclasses, builds indexes)    │
+               └───────────────────────────┬────────────────────────────┘
+                                           │
+                                           ▼
+               ┌────────────────────────────────────────────────────────┐
+               │              Financial State Reconstruction            │
+               │  (Filters settled vs pending, excludes non-cash/void) │
+               └───────────────────────────┬────────────────────────────┘
+                                           │
+                                           ▼
+               ┌────────────────────────────────────────────────────────┐
+               │                Message & Image Evidence                │
+               │ (Resolves salary shifts, invoices, receipts, payslips) │
+               └───────────────────────────┬────────────────────────────┘
+                                           │
+                                           ▼
+               ┌────────────────────────────────────────────────────────┐
+               │              90-Day Forward Cash-Flow Engine           │
+               │ (Simulates day-by-day spendable balances with FX rates)│
+               └───────────────────────────┬────────────────────────────┘
+                                           │
+                                           ▼
+               ┌────────────────────────────────────────────────────────┐
+               │                    Decision Engine                      │
+               │ (Generates & ranks: full, partial, installment, wait)  │
+               └───────────────────────────┬────────────────────────────┘
+                                           │
+                                           ▼
+               ┌────────────────────────────────────────────────────────┐
+               │                  Output Validation                      │
+               │    (Verifies schema, non-negativity, safety bounds)    │
+               └───────────────────────────┬────────────────────────────┘
+                                           │
+                                           ▼
+               ┌────────────────────────────────────────────────────────┐
+               │                       output.csv                        │
+               │                (Final submission output)                 │
+               └────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 6. Decision Logic
+
+### Affordability Statuses
+
+| Status                 | Description                                                                                                                                   |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `affordable_now`       | The user can pay the full requested amount immediately on the request date without breaching their minimum balance.                           |
+| `affordable_with_plan` | The purchase is affordable via a multi-payment schedule (installments, two-part partial payment) or by applying approved spending changes.    |
+| `affordable_later`     | The purchase cannot be safely made today, but waiting for confirmed future income enables a safe full payment by the desired completion date. |
+| `not_affordable`       | The purchase cannot safely be completed by the desired deadline under any supported payment method or permitted spending reduction.           |
+
+### Recommended Payment Methods
+
+| Payment Method    | Description                                                                                                      |
+| ----------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `full_payment`    | Single payment of the entire requested amount on the request date or earliest safe date.                         |
+| `partial_payment` | Exactly two payments: `amount_safe_to_pay` on `request_date`, and remainder on `earliest_date_for_full_payment`. |
+| `installments`    | Equal periodic installment schedule selected from supplier payment options.                                      |
+| `wait`            | User is advised to wait until `earliest_date_for_full_payment` when liquidity is restored.                       |
+| `not_recommended` | The expense is unsafe and not recommended.                                                                       |
+
+---
+
+## 7. Project Structure
+
+```text
+├── code/
+│   ├── main.py                  # Primary entry point: loads dataset, evaluates 250 requests, writes output.csv
+│   ├── data_loader.py           # Data ingestion and typed indexing for all dataset tables
+│   ├── financial_engine.py      # 90-day cash flow simulation, FX converter, recurrence detection, image resolver
+│   ├── decision_engine.py       # Candidate generation, affordability ranking, plan formatting, explanations
+│   ├── message_parser.py        # Deterministic English & Indonesian regex parser for message evidence
+│   └── evaluation/
+│       ├── main.py              # Evaluation & scoring script
+│       └── usage_report.md      # Model and token usage report
+│
+├── dataset/
+│   ├── financial_profiles.csv       # User balance, minimum reserve, priorities, protected/flexible categories
+│   ├── financial_events.csv         # Historical, scheduled, and pending financial transactions
+│   ├── request_payment_options.csv  # Seller-provided installment and financing options
+│   ├── exchange_rates.csv           # Fixed historical and future exchange rates
+│   ├── requests.csv                 # 250 evaluation requests
+│   ├── sample_requests.csv          # 25 public reference examples
+│   ├── messages.csv                 # Unstructured text notifications and evidence
+│   ├── images.csv                   # Image metadata and event mappings
+│   └── media/images/                # PNG receipts, invoices, and payslips
+│
+├── tests/
+│   ├── test_stage2.py           # Stage 2 data loader, cash flow, and financial engine tests
+│   ├── test_stage3.py           # Stage 3 decision engine, affordability classification, and invariant tests
+│   ├── test_messages.py         # Bilingual message parsing and financial context integration tests
+│   └── test_images.py           # Image amount resolution, FX handling, and recurring boundary tests
+│
+├── output.csv                  # Generated prediction file for all 250 evaluation requests
+├── problem_statement.md        # Official challenge specification
+├── AGENTS.md                   # Agent harness rules and operational contracts
+└── README.md                   # Project documentation
+```
+
+---
+
+## 8. Testing & Validation
+
+The test suite validates data loading, FX rate traversal, message interpretation, image integration, decision ranking, and mathematical safety invariants across all components.
 
 ```bash
-git clone https://github.com/interviewstreet/hackerrank-orchestrate-september26.git
-cd hackerrank-orchestrate-september26
+pytest -q
 ```
 
-Build your solution in `code/main.py`, or use another language and document its entry point clearly.
+**Test Results**:
 
-Your solution must:
+```text
+........................................................................ [ 39%]
+........................................................................ [ 78%]
+........................................                                 [100%]
 
-- Read the input files from `dataset/`
-- Generate one prediction for every request
-- Write the final predictions to `output.csv` in the repository root
+184 passed in 2.85s
+```
 
-Run the starter Python entry point with:
+* **184 / 184 tests passing** (100% pass rate).
+* Validated on all **250 evaluation requests** in `requests.csv`.
+* The full pipeline validates the required schema, financial bounds, payment-plan constraints, and other decision invariants.
+
+---
+
+## 9. Illustrative Example
+
+> **Note:** The following scenario is a fictional example for illustrative purposes.
+
+* **User**: `user_demo` (Home Currency: `INR`)
+* **Available Balance**: ₹120,000 | **Minimum Reserve**: ₹50,000
+* **Request**: Laptop Purchase of **₹80,000** on **2026-10-01** (Completion Deadline: **2026-11-15**)
+* **Upcoming Commitments**: Scheduled Rent of ₹60,000 due on **2026-10-05**; Salary of ₹90,000 settling on **2026-10-15**.
+
+### Agent Evaluation
+
+1. **Pay Full Today?**
+
+   * Balance after purchase = ₹120,000 - ₹80,000 = ₹40,000.
+   * On 2026-10-05, Rent of ₹60,000 brings balance to -₹20,000 (breaches ₹50,000 minimum reserve). → **Unsafe today**.
+
+2. **Installments Option Available?**
+
+   * Seller offers 3 monthly payments of ₹27,000 starting 2026-10-01.
+   * Balance after payment 1 = ₹93,000; after Rent = ₹33,000 (below ₹50,000 buffer). → **Unsafe**.
+
+3. **Wait for Inflow?**
+
+   * On 2026-10-15, salary of ₹90,000 settles.
+   * Projected balance on 2026-10-15 after Rent = ₹150,000.
+   * Paying ₹80,000 on 2026-10-15 leaves ₹70,000 (≥ ₹50,000 reserve) for all 90 days. → **Safe**.
+
+### Output Decision
+
+* `affordability_status`: `affordable_later`
+* `recommended_payment_method`: `wait`
+* `earliest_date_for_full_payment`: `2026-10-15`
+* `decision_explanation`: *"Pay INR 80,000 in full on 15 October 2026 after confirmed salary credit. Paying earlier would take the balance below the INR 50,000 minimum reserve due to scheduled rent."*
+
+---
+
+## 10. Tech Stack
+
+* **Language**: Python 3.10+
+* **Standard Libraries**: `dataclasses`, `datetime`, `collections`, `decimal`, `re`, `csv`
+* **Testing**: `pytest`
+* **Architecture**: 100% deterministic, offline, rule-based financial decision engine (zero external API, LLM, or cloud dependencies).
+
+---
+
+## 11. Running Locally
+
+### Clone Repository
 
 ```bash
-python3 code/main.py
+git clone https://github.com/Rani2025-tech/buy-or-wait-financial-agent.git
+cd buy-or-wait-financial-agent
 ```
 
-After running your solution, confirm that `output.csv` exists in the repository root and contains the required columns and one row for every request.
+### Run Full Evaluation Pipeline
 
-## Important File Locations
+To process all 250 evaluation requests and regenerate `output.csv`:
 
-```text
-dataset/        Input data and the blank output template. Do not modify the input data.
-code/           Your solution code.
-output.csv      Final generated predictions in the repository root.
-code.zip        ZIP file containing your complete solution for submission.
+```bash
+python code/main.py
 ```
 
-The blank template at `dataset/output.csv` is provided as a reference. Your final generated file must be the root-level `output.csv`.
+### Run Test Suite
 
----
-
-## Repository Layout
-
-```text
-.
-├── AGENTS.md                         # Rules for AI coding tools + transcript logging
-├── problem_statement.md              # Full challenge statement
-├── README.md                         # You are here
-├── code/                             # Your solution code
-├── output.csv                        # Final generated predictions
-└── dataset/
-    ├── requests.csv                  # 250 requests to evaluate — predict these
-    ├── output.csv                    # Blank submission template
-    ├── sample_requests.csv           # 25 solved examples
-    ├── financial_profiles.csv        # Balances, minimum balance, priorities, preferences
-    ├── financial_events.csv          # Historical, pending, and confirmed transactions
-    ├── request_payment_options.csv   # Payment options available per request
-    ├── exchange_rates.csv            # Fixed, dated conversion rates
-    ├── messages.csv                  # Messages tied to users, requests, or events
-    ├── images.csv                    # Payroll letters, statements, bills, receipts
-    └── media/
-        └── images/
+```bash
+pytest -v
 ```
 
-Only `dataset/requests.csv` requires predictions. Everything else is context. Join user records with `user_id`, request records with `request_id`, supporting evidence with `related_event_id`, and exchange rates with the rate date and currency pair.
+---
 
-Amounts are in the user's `home_currency` — the dataset uses INR, ZAR, IDR, USD, and EUR, and every conversion rate you need is in `exchange_rates.csv`. All dates are `YYYY-MM-DD`. Live exchange rates, market data, and banking access are not required.
+## 12. Output Format
+
+The system produces `output.csv` matching the required 8-column contract:
+
+| Column                           | Type   | Description                                                                                                          |                |
+| -------------------------------- | ------ | -------------------------------------------------------------------------------------------------------------------- | -------------- |
+| `request_id`                     | String | Unique evaluation request identifier (`request_26` to `request_275`).                                                |                |
+| `amount_safe_to_pay`             | Float  | Amount safe to pay immediately on `request_date` before spending changes (between 0 and requested amount inclusive). |                |
+| `affordability_status`           | Enum   | `affordable_now`, `affordable_with_plan`, `affordable_later`, or `not_affordable`.                                   |                |
+| `recommended_payment_method`     | Enum   | `full_payment`, `partial_payment`, `installments`, `wait`, or `not_recommended`.                                     |                |
+| `payment_plan`                   | String | Chronological `YYYY-MM-DD:amount` entries separated by pipes (`                                                      | `), or `none`. |
+| `earliest_date_for_full_payment` | String | First projected date (`YYYY-MM-DD`) for a safe single full payment, or blank.                                        |                |
+| `spending_changes_needed`        | String | Up to 3 `stop:<event_id>` or `reduce_to:<event_id>:<amount>` actions, or `none`.                                     |                |
+| `decision_explanation`           | String | Concise, grounded explanation justifying the recommendation.                                                         |                |
 
 ---
 
-## What You Need to Build
+## 13. Design Philosophy
 
-For every row in `dataset/requests.csv`, produce one row in `output.csv` with:
+* **Conservatism First**: Balances are calculated conservatively. Pending debits are reserved immediately, whereas unconfirmed income, windfalls, and unrealized assets are never counted until settled.
 
-| Column | Meaning |
-|---|---|
-| `request_id` | The request being answered |
-| `amount_safe_to_pay` | Largest amount safe to pay on `request_date` before optional spending changes, after protecting essentials and the minimum balance |
-| `affordability_status` | `affordable_now`, `affordable_with_plan`, `affordable_later`, or `not_affordable` |
-| `recommended_payment_method` | `full_payment`, `partial_payment`, `installments`, `wait`, or `not_recommended` |
-| `payment_plan` | Chronological `<YYYY-MM-DD>:<amount>` entries joined by `\|`, or `none` |
-| `earliest_date_for_full_payment` | Earliest date the full amount is forecast safe as one payment; empty if never within the forecast |
-| `spending_changes_needed` | Up to three `stop:<event_id>` / `reduce_to:<event_id>:<amount>` changes joined by `\|`, or `none` |
-| `decision_explanation` | Short explanation and the financial facts behind it |
+* **Buffer Inviolability**: The user's `minimum_balance_to_keep` is treated as a hard safety boundary across all 90 projected days.
 
-`0 <= amount_safe_to_pay <= requested_amount` must always hold. Installment plans must exactly match a supplied payment option, and only recurring expenses marked flexible may be changed.
-
-`affordable_with_plan` means the full request is completed through a partial-payment schedule, installments, or permitted spending changes. Recommend `partial_payment` only when the request allows it, the user accepts it, `0 < amount_safe_to_pay < requested_amount`, and `earliest_date_for_full_payment` is on or before `desired_completion_date`. Use exactly two payments: pay `amount_safe_to_pay` on `request_date`, then pay the remaining amount on `earliest_date_for_full_payment`. The two payments must add up to `requested_amount`. Unlike installments, partial payment does not need to match a supplied payment option.
+* **Traceable Decisions**: Recommendations are derived strictly from explicit financial data, deterministic rules, and validated calculations, ensuring full auditability without ungrounded heuristics.
 
 ---
 
-## Suggested Workflow
+## 14. Limitations
 
-1. Inspect `dataset/sample_requests.csv` — 25 requests with completed output columns — to understand the expected format and decision style.
-2. Reconstruct each user's financial state from `financial_profiles.csv` and `financial_events.csv`: separate recurring expenses from one-time events, reserve pending transactions, count confirmed salary only on its settlement date, and de-duplicate repeated representations of the same event.
-3. When an event has a blank `amount`, find its `event_id` as `related_event_id` in `images.csv` and extract the amount from the linked image. Never treat a blank amount as zero. Pull in any other relevant messages, images, and payment options for the request.
-4. Forecast forward and generate a plan that keeps the balance above the minimum at every step.
-5. Verify deterministically — bounds, plan feasibility, schedule match, flexible-only spending changes — before writing `output.csv`.
-6. Score yourself on the solved samples, then run the full dataset.
+* **Dataset-Bound**: Operates strictly on provided offline financial records and fixed dated exchange rates. Does not connect to live open banking APIs, live stock feeds, or real-time forex streams.
 
-You may use any language or runtime. Python, JavaScript, and TypeScript are all reasonable choices.
+* **Deterministic Evidence Resolution**: Relies on structured regex matching and verified image-linked transaction amount mappings rather than live OCR models.
 
 ---
 
-## Requirements
+## 15. Project Status
 
-Your solution must:
-
-- be runnable from the terminal
-- read the provided files from `dataset/`
-- produce a valid `output.csv` with the exact required columns in the exact required order
-- include one prediction for every `request_id` in `dataset/requests.csv`
-- not use organizer-only files or hardcoded labels
-- keep behavior deterministic where possible
-
-If you use API keys or secrets, read them from environment variables. Never hardcode secrets in the repo.
-
----
-
-## Evaluation
-
-Your `output.csv` will be compared against hidden ground-truth values.
-
-The scoring will consider:
-
-- accuracy of `amount_safe_to_pay`
-- correctness of `affordability_status`
-- correctness of `recommended_payment_method` and `payment_plan`
-- accuracy of `earliest_date_for_full_payment`
-- validity of `spending_changes_needed`
-- usefulness and consistency of `decision_explanation`
-
-### Token Usage And Cost Analysis
-
-Your `code.zip` must include one token-usage file:
-
-```text
-evaluation/usage_report.md
-```
-
-The report must cover model providers and names, model calls, input and output tokens, total and average tokens per request, estimated total and per-request cost. The reported values must correspond to the final full-dataset run that produced your `output.csv`.
-
----
-
-## Chat Transcript Logging
-
-This repo includes an [`AGENTS.md`](./AGENTS.md) file for AI coding tools. It asks compatible tools to append conversation summaries to a `log.txt` in the repository root — the same directory as `AGENTS.md`:
-
-| Platform | Path |
-|---|---|
-| macOS / Linux | `<repo root>/log.txt` |
-| Windows | `<repo root>\log.txt` |
-
-The path resolves relative to `AGENTS.md`, so it stays correct across clones, renames, and checkouts. `log.txt` is gitignored — upload it as your chat transcript at submission time. Do not paste secrets into the chat.
-
-In case, the harness you are using is not in the repo root, you can explicitly ask the agent to look for the AGENTS.md in this folder & then continue.
-
----
-
-## Submission
-
-Submit the following files as instructed by HackerRank:
-
-| File | Description |
-|---|---|
-| `code.zip` | Full runnable solution, prompts/configuration, README, and the required `evaluation/` folder |
-| `output.csv` | Predictions for every row in `dataset/requests.csv` |
-| `chat_transcript` | The `log.txt` described above, showing how you developed or used the system |
-
-Before submitting, confirm:
-
-- `output.csv` has one row per row in `dataset/requests.csv` (250 rows plus the header).
-- `output.csv` has the exact required columns in the exact required order.
-- Every `amount_safe_to_pay` satisfies `0 <= amount_safe_to_pay <= requested_amount`.
-- Every installment plan matches a supplied payment option, and every spending change targets a flexible recurring expense.
-- Your runnable code, setup instructions, and `evaluation/` folder are included in `code.zip`.
+* **Dataset Coverage**: All 250 requests processed in `output.csv`.
+* **Test Coverage**: 184 / 184 tests passing.
+* **Project Status**: Completed and fully verified on the 250-request dataset.
